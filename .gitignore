@@ -1,0 +1,19 @@
+# Secretos: nunca al repositorio
+.env
+*.env
+!.env.example
+credenciales*
+
+# Respaldos de la base (contienen datos personales)
+*.sql.gz
+respaldos/
+
+# Llaves privadas
+*.key
+*.pem
+
+# Dependencias y archivos del sistema
+node_modules/
+npm-debug.log*
+.DS_Store
+Thumbs.db

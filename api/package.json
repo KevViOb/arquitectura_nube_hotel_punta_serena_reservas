@@ -1,0 +1,19 @@
+{
+  "name": "hotel_punta_serena_api",
+  "version": "1.0.0",
+  "private": true,
+  "description": "API REST del sistema de reservas del Hotel Punta Serena",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js"
+  },
+  "engines": {
+    "node": ">=24"
+  },
+  "dependencies": {
+    "argon2": "^0.45.1",
+    "express": "^5.3.0",
+    "jsonwebtoken": "^9.0.3",
+    "pg": "^8.23.1"
+  }
+}

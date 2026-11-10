@@ -1,0 +1,95 @@
+# Hotel Punta Serena: entorno completo con un solo comando (RNF09).
+#   docker compose up -d --build
+#
+# Los secretos salen del archivo .env (que no se sube al repositorio). Cada
+# contenedor recibe solo las variables que necesita.
+
+name: hotel_punta_serena
+
+services:
+
+  # Único punto de entrada: Nginx con ModSecurity y OWASP CRS (WAF), TLS,
+  # cabeceras de seguridad y límite de peticiones.
+  proxy:
+    image: owasp/modsecurity-crs:4.25.2-nginx-202610180210-lts
+    ports:
+      - "443:8443"                # el único puerto publicado en el host
+    environment:
+      TZ: America/Costa_Rica
+      SERVER_NAME: localhost
+      BACKEND: http://frontend:80 # exigido por la imagen; el enrutamiento real está en la plantilla
+      MODSEC_RULE_ENGINE: "on"
+      BLOCKING_PARANOIA: "1"
+      ANOMALY_INBOUND: "5"
+      ANOMALY_OUTBOUND: "4"
+    volumes:
+      - ./proxy/default.conf.template:/etc/nginx/templates/conf.d/default.conf.template:ro
+    depends_on:
+      - frontend
+      - api
+    networks:
+      - red_interna
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+
+  # Archivos estáticos de la interfaz, puerto 80 solo dentro de la red interna.
+  frontend:
+    build: ./frontend
+    environment:
+      TZ: America/Costa_Rica
+    networks:
+      - red_interna
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+
+  # API REST, puerto 3000 solo dentro de la red interna. Sin estado en memoria:
+  # admite varias réplicas (docker compose up -d --scale api=3).
+  api:
+    build: ./api
+    environment:
+      TZ: America/Costa_Rica
+      NODE_ENV: production
+      PUERTO: "3000"
+      DATABASE_URL: ${DATABASE_URL:?Falta DATABASE_URL en .env}
+      JWT_SECRET: ${JWT_SECRET:?Falta JWT_SECRET en .env}
+      MAILTRAP_TOKEN: ${MAILTRAP_TOKEN:?Falta MAILTRAP_TOKEN en .env}
+      MAILTRAP_INBOX_ID: ${MAILTRAP_INBOX_ID:?Falta MAILTRAP_INBOX_ID en .env}
+      CORREO_REMITENTE: reservas@hotelpuntaserena.example
+      HORA_ENTRADA: "14:00"
+      HORA_SALIDA: "12:00"
+    volumes:
+      - ./certs/supabase-ca.crt:/run/certs/supabase-ca.crt:ro
+    networks:
+      - red_interna
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+
+  # Respaldo diario con cron a las 2:00 a. m.; sin puertos de escucha.
+  respaldo:
+    build: ./respaldo
+    environment:
+      TZ: America/Costa_Rica
+      RESPALDO_DATABASE_URL: ${RESPALDO_DATABASE_URL:?Falta RESPALDO_DATABASE_URL en .env}
+      SUPABASE_S3_ENDPOINT: ${SUPABASE_S3_ENDPOINT:?Falta SUPABASE_S3_ENDPOINT en .env}
+      SUPABASE_S3_REGION: ${SUPABASE_S3_REGION:?Falta SUPABASE_S3_REGION en .env}
+      SUPABASE_S3_ACCESS_KEY_ID: ${SUPABASE_S3_ACCESS_KEY_ID:?Falta SUPABASE_S3_ACCESS_KEY_ID en .env}
+      SUPABASE_S3_SECRET_ACCESS_KEY: ${SUPABASE_S3_SECRET_ACCESS_KEY:?Falta SUPABASE_S3_SECRET_ACCESS_KEY en .env}
+      SUPABASE_BUCKET: ${SUPABASE_BUCKET:?Falta SUPABASE_BUCKET en .env}
+    volumes:
+      - respaldos:/respaldos
+      - ./certs/supabase-ca.crt:/run/certs/supabase-ca.crt:ro
+    networks:
+      - red_interna
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+
+networks:
+  red_interna:
+    driver: bridge
+
+volumes:
+  respaldos:

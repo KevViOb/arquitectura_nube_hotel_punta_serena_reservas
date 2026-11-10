@@ -1,0 +1,91 @@
+# Proxy inverso y WAF del Hotel Punta Serena.
+#
+# Este archivo reemplaza la plantilla default.conf.template de la imagen
+# owasp/modsecurity-crs (variante Nginx). Al arrancar, la imagen sustituye las
+# variables ${...} con envsubst. ModSecurity y el OWASP Core Rule Set se activan
+# en conf.d/modsecurity.conf, que la imagen genera aparte, y aplican a todo el
+# tráfico de este archivo. Si el certificado no existe, la imagen genera uno
+# autofirmado al arrancar.
+#
+# Es el único punto de entrada del sistema: cifrado TLS, WAF, cabeceras de
+# seguridad y límite de peticiones por dirección IP.
+
+server_tokens off;
+
+# Límite de peticiones por dirección IP. Más estricto en el inicio de sesión
+# (adivinar contraseñas) y en la creación de reservas (reservas falsas).
+limit_req_zone $binary_remote_addr zone=general:10m  rate=10r/s;
+limit_req_zone $binary_remote_addr zone=sesion:10m   rate=5r/m;
+limit_req_zone $binary_remote_addr zone=reservas:10m rate=10r/m;
+limit_req_status 429;
+
+# Destinos dentro de la red interna de Docker. Para escalar la API basta con
+# levantar más réplicas del servicio api: Docker resuelve el nombre a todas y
+# Nginx reparte las peticiones entre ellas de forma cíclica.
+upstream frontend { server frontend:80; }
+upstream api      { server api:3000; }
+
+# El puerto HTTP interno no se publica en el host; si llegara una petición,
+# se redirige a HTTPS.
+server {
+    listen ${PORT} default_server;
+    server_name ${SERVER_NAME};
+
+    location = /healthz { access_log off; return 200 "OK"; }
+    location / { return 301 https://$host$request_uri; }
+}
+
+server {
+    listen ${SSL_PORT} ssl default_server;
+    server_name ${SERVER_NAME};
+
+    ssl_certificate     ${SSL_CERT_FILE};
+    ssl_certificate_key ${SSL_CERT_KEY_FILE};
+    ssl_protocols       TLSv1.2 TLSv1.3;
+    ssl_session_cache   shared:TLS:10m;
+    ssl_session_timeout 1d;
+    ssl_session_tickets off;
+
+    client_max_body_size 32k;
+
+    # Cabeceras de seguridad en todas las respuestas, también en los errores.
+    add_header Strict-Transport-Security "max-age=31536000" always;
+    add_header X-Content-Type-Options    "nosniff" always;
+    add_header X-Frame-Options           "DENY" always;
+    add_header Referrer-Policy           "no-referrer" always;
+    add_header Permissions-Policy        "camera=(), microphone=(), geolocation=()" always;
+    add_header Content-Security-Policy   "default-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'" always;
+
+    # La API recibe la dirección real del cliente. X-Forwarded-For se reemplaza,
+    # no se encadena, para que un cliente no pueda falsificarla.
+    proxy_http_version 1.1;
+    proxy_set_header Host              $host;
+    proxy_set_header X-Real-IP         $remote_addr;
+    proxy_set_header X-Forwarded-For   $remote_addr;
+    proxy_set_header X-Forwarded-Proto https;
+    proxy_connect_timeout 5s;
+    proxy_read_timeout    30s;
+
+    # Usado por el chequeo de salud de la imagen.
+    location = /healthz { access_log off; return 200 "OK"; }
+
+    location = /api/sesion {
+        limit_req zone=sesion burst=3 nodelay;
+        proxy_pass http://api;
+    }
+
+    location = /api/reservas {
+        limit_req zone=reservas burst=5 nodelay;
+        proxy_pass http://api;
+    }
+
+    location /api/ {
+        limit_req zone=general burst=20 nodelay;
+        proxy_pass http://api;
+    }
+
+    location / {
+        limit_req zone=general burst=40 nodelay;
+        proxy_pass http://frontend;
+    }
+}

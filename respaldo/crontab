@@ -1,0 +1,3 @@
+# Respaldo diario a las 2:00 a. m., hora de Costa Rica (el contenedor usa TZ=America/Costa_Rica).
+# La salida va a la consola del contenedor: se revisa con docker compose logs respaldo.
+0 2 * * * /usr/local/bin/respaldo.sh > /proc/1/fd/1 2>&1

@@ -1,0 +1,8 @@
+# Los scripts y la configuración de los contenedores deben conservar saltos de línea LF,
+# aunque el repositorio se clone en Windows.
+*.sh          text eol=lf
+crontab       text eol=lf
+*.template    text eol=lf
+Dockerfile    text eol=lf
+*.yaml        text eol=lf
+*.sql         text eol=lf
